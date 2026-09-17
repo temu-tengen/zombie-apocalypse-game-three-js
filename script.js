@@ -87,7 +87,7 @@ class Player {
         this.gunHandle.position.set(0, -0.5, -0.3);
 
         this.mesh.add(this.gun);
-        this.gun.position.set(0, 1,0);
+        this.gun.position.set(0, 1, 0);
 
         scene.add(this.mesh);
         this.mesh.position.z = 5;
@@ -103,6 +103,12 @@ class Player {
         this.backward = false;
         this.right = false;
         this.left = false;
+
+        // direction
+        this.facingForward = false;
+        this.facingBackward = false;
+        this.facingLeft = false;
+        this.facingRight = false;
 
         this.isJumping = false;
         this.jumpPower = 0.5;
@@ -121,23 +127,43 @@ class Player {
         // key inputs
         if (this.forward) {
             this.dy = this.speed;
-            this.gun.position.set(0, 1,0);
+            this.gun.position.set(0, 1, 0);
             this.gun.rotation.set(0, 0, 0);
+
+            this.facingForward = true;
+            this.facingBackward = false;
+            this.facingLeft = false;
+            this.facingRight = false;
         }
         if (this.backward) {
             this.dy = -this.speed;
-            this.gun.position.set(0, -1,0);
+            this.gun.position.set(0, -1, 0);
             this.gun.rotation.set(0, 0, -6.28);
+            
+            this.facingForward = false;
+            this.facingBackward = true;
+            this.facingLeft = false;
+            this.facingRight = false;
         }
         if (this.left) {
             this.dx = -this.speed;
-            this.gun.position.set(-1.5, 0 ,0);
+            this.gun.position.set(-1.5, 0, 0);
             this.gun.rotation.set(0, 0, 1.5);
+
+            this.facingForward = false;
+            this.facingBackward = false;
+            this.facingLeft = true;
+            this.facingRight = false;
         }
         if (this.right) {
             this.dx = this.speed;
-            this.gun.position.set(1.5, 0 ,0);
+            this.gun.position.set(1.5, 0, 0);
             this.gun.rotation.set(0, 0, -1.5);
+
+            this.facingForward = false;
+            this.facingBackward = false;
+            this.facingLeft = false;
+            this.facingRight = true;
         }
 
         if (!this.left && !this.right) {
@@ -177,6 +203,7 @@ class Player {
     respawn() {
         this.mesh.position.x = 5;
         this.mesh.position.z = 5;
+        this.mesh.position.y = 0;
     }
 }
 
@@ -208,6 +235,7 @@ class Zombie {
         this.dz = 0;
         this.isJumping = false;
 
+        this.health = 100;
         this.speed = 0.04;
     }
 
@@ -266,6 +294,84 @@ class Zombie {
 
 const zombie1 = new Zombie(0, 0);
 zombies.push(zombie1);
+
+class Bullet {
+    constructor(playerMObj) {
+        this.geo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+        this.material = new THREE.MeshStandardMaterial({ color: 0xFFB81C });
+        this.mesh = new THREE.Mesh(this.geo, this.material);
+
+        this.player = playerMObj;
+        this.speed = 0.5;
+
+        this.dx = 0;
+        this.dy = 0;
+
+        if (this.player.facingForward) {
+            this.direction = "forward";
+            this.dy = this.speed;
+        }
+        if (this.player.facingBackward) {
+            this.direction = "backward";
+            this.dy = -this.speed;
+        }
+        if (this.player.facingRight) {
+            this.direction = "right";
+            this.dx = this.speed;
+        }
+        if (this.player.facingLeft) {
+            this.direction = "left";
+            this.dx = -this.speed;
+        }
+
+        this.mesh.position.set(this.player.mesh.position.x, this.player.mesh.position.y, this.player.mesh.position.z)
+        scene.add(this.mesh);
+    }
+
+    update() {
+        this.mesh.position.x += this.dx;
+        this.mesh.position.y += this.dy;
+    }
+
+    static handleRemoval() {
+        const bulletsLeft = [];
+
+        for (let b of bullets) {
+
+            let removed = false;
+
+            // zombie check
+            for (let barrier of zombies) {
+                const barrierBox = new THREE.Box3().setFromObject(barrier.mesh);
+                if (barrierBox.intersectsBox(bulletBox)) {
+                    b.mesh.geometry.dispose();
+                    b.mesh.material.dispose();
+                    scene.remove(b.mesh);
+                    removed = true;
+
+                    barrier.health -= 50;
+                    break;
+                }
+            }
+
+            if (removed) continue; // Skip other checks if already removed by a barrier
+
+            // Out of bounds check
+            if (b.mesh.position.x > 100 || b.mesh.position.x < -100 || b.mesh.position.y < -100 || b.mesh.position.y > 100) {
+                b.mesh.geometry.dispose();
+                b.mesh.material.dispose();
+                scene.remove(b.mesh);
+                continue;
+            }
+
+            // If no collisions or out of bounds, keep the bullet alive
+            bulletsLeft.push(b);
+        }
+
+        bullets = bulletsLeft;
+    }
+
+}
 
 for (let i = 0; i < 10; i++) {
     zombies.push(new Zombie(i * 2, 1 * 4))
