@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import zombieMatURL from "./assets/zombie-material.png";
 import skyMaterialURL from "./assets/sky.png";
 import grassMaterialURL from "./assets/grass.png";
+import stoneMaterialURL from "./assets/stone.png";
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
@@ -23,13 +24,24 @@ const stages = {
     stage1: false,
     death: false,
 }
+
+let displayStageVar = 0;
+let score = 0;
+let justDied = true;
+
 // materials
 const tLoader = new THREE.TextureLoader();
 const zombieTexture = tLoader.load(zombieMatURL);
 const skyMaterial = tLoader.load(skyMaterialURL);
 const grassTexture = tLoader.load(grassMaterialURL);
 const grassMaterial = new THREE.MeshStandardMaterial({ map: grassTexture, roughness: 0.5 });
+const stoneTexture = tLoader.load(stoneMaterialURL);
+const stoneMaterial = new THREE.MeshStandardMaterial({ map: stoneTexture, roughness: 0.5 });
+stoneTexture.wrapS = THREE.RepeatWrapping;
+stoneTexture.wrapT = THREE.RepeatWrapping;
 
+stoneTexture.repeat.set(10, 1);
+ 
 grassTexture.wrapS = THREE.RepeatWrapping;
 grassTexture.wrapT = THREE.RepeatWrapping;
 
@@ -58,7 +70,32 @@ camera.position.z = 15;
 camera.position.y = -15;
 camera.lookAt(0, 0, 0);
 
-const zombies = [];
+let zombies = [];
+const walls = [];
+
+class Wall {
+    constructor (x, y, z, w, h, d) {
+        this.geo = new THREE.BoxGeometry(w, h, d);
+        this.material = stoneMaterial;
+        this.mesh = new THREE.Mesh(this.geo, this.material);
+        
+        scene.add(this.mesh);
+        this.mesh.position.set(x, y, z);
+
+        this.box = new THREE.Box3().setFromObject(this.mesh);
+        this.health = 100;
+    }
+
+    update() {
+        if (this.health <= 0) {
+            this.mesh.geometry.dispose();
+            this.mesh.material.dispose();
+            scene.remove(this.mesh);
+        }
+    }
+}
+
+walls.push(new Wall(0, -30, 1.2, 100, 1, 2.4));
 
 // class definitions
 class Player {
@@ -92,6 +129,7 @@ class Player {
         scene.add(this.mesh);
         this.mesh.position.z = 5;
         this.mesh.position.x = 5;
+        this.mesh.position.y = -50;
 
         this.dz = 0;
         this.dx = 0;
@@ -105,7 +143,7 @@ class Player {
         this.left = false;
 
         // direction
-        this.facingForward = false;
+        this.facingForward = true;
         this.facingBackward = false;
         this.facingLeft = false;
         this.facingRight = false;
@@ -139,7 +177,7 @@ class Player {
             this.dy = -this.speed;
             this.gun.position.set(0, -1, 0);
             this.gun.rotation.set(0, 0, -6.28);
-            
+
             this.facingForward = false;
             this.facingBackward = true;
             this.facingLeft = false;
@@ -203,7 +241,7 @@ class Player {
     respawn() {
         this.mesh.position.x = 5;
         this.mesh.position.z = 5;
-        this.mesh.position.y = 0;
+        this.mesh.position.y = -50;
     }
 }
 
@@ -236,10 +274,25 @@ class Zombie {
         this.isJumping = false;
 
         this.health = 100;
-        this.speed = 0.04;
+        this.speed = 0.07;
+
+        this.speed = Math.random() * 0.1 + 0.05;
     }
 
     update() {
+
+        // movement randomizer
+        if (Math.random() < 0.01) {
+            this.dx = (Math.random() - 0.5) * 0.1;
+            this.dy = (Math.random() - 0.5) * 0.1;
+        }
+        if (this.dx == 0) {
+            this.dx = (Math.random() - 0.5) * 100;
+        }
+        if (this.dy == 0) {
+            this.dy = (Math.random() - 0.5) * 100;
+        }
+
         this.dz += gravity;
         this.mesh.position.z += this.dz;
 
@@ -247,16 +300,18 @@ class Zombie {
         const px = player1.mesh.position.x;
         const py = player1.mesh.position.y;
 
-        if (this.mesh.position.x > px) {
+        if (this.mesh.position.x > px && Math.abs(this.mesh.position.y - py) < 5) {
             this.mesh.position.x -= this.speed;
         }
-        if (this.mesh.position.x < px) {
+        if (this.mesh.position.x < px && Math.abs(this.mesh.position.y - py) < 5) {
             this.mesh.position.x += this.speed;
         }
-        if (this.mesh.position.y < py) {
+
+        const randomOffset = (Math.random() - 1) * 2; // Random offset between -1 and 1
+        if (this.mesh.position.y < py + randomOffset) {
             this.mesh.position.y += this.speed;
         }
-        if (this.mesh.position.y > py) {
+        if (this.mesh.position.y > py + randomOffset) {
             this.mesh.position.y -= this.speed;
         }
         // ground check
@@ -284,6 +339,14 @@ class Zombie {
             }
         }
 
+        // wall collision
+        for (let w of walls) {
+            if (mybox.intersectsBox(w.box)) {
+                this.mesh.position.copy(this.prevPos);
+                w.health -= 0.05;
+            }
+        }
+
         this.prevPos = this.mesh.position.clone();
     }
 
@@ -294,6 +357,8 @@ class Zombie {
 
 const zombie1 = new Zombie(0, 0);
 zombies.push(zombie1);
+
+let bullets = [];
 
 class Bullet {
     constructor(playerMObj) {
@@ -341,15 +406,17 @@ class Bullet {
             let removed = false;
 
             // zombie check
-            for (let barrier of zombies) {
-                const barrierBox = new THREE.Box3().setFromObject(barrier.mesh);
-                if (barrierBox.intersectsBox(bulletBox)) {
+            for (let z of zombies) {
+                const zbox = new THREE.Box3().setFromObject(z.mesh);
+                const bulletBox = new THREE.Box3().setFromObject(b.mesh);
+                if (zbox.intersectsBox(bulletBox)) {
                     b.mesh.geometry.dispose();
                     b.mesh.material.dispose();
                     scene.remove(b.mesh);
                     removed = true;
 
-                    barrier.health -= 50;
+                    z.health -= 50;
+                    score++;
                     break;
                 }
             }
@@ -372,8 +439,73 @@ class Bullet {
     }
 
 }
+let powerups = [];
 
-for (let i = 0; i < 10; i++) {
+class Powerup {
+    constructor(newSpeed, newJumpPower, healthAddition) {
+        this.newSpeed = newSpeed;
+        this.newJumpPower = newJumpPower;
+        this.healthAddition = healthAddition;
+
+        this.color = 0xffffff;
+
+        if (this.newSpeed != 0) {
+            this.color = 0xFFFF00; // yellow for speed
+        }
+        if (this.newJumpPower != 0) {
+            this.color = 0x00FF00; // green for jump
+        }
+        if (this.healthAddition != 0) {
+            this.color = 0xFF0000; // red for health
+        }
+
+        this.geo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+        this.material = new THREE.MeshStandardMaterial({ color: this.color });
+        this.mesh = new THREE.Mesh(this.geo, this.material);
+
+        scene.add(this.mesh);
+        this.mesh.position.set((Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50, 1);
+    }
+
+    update() {
+        const mybox = new THREE.Box3().setFromObject(this.mesh);
+        const playerbox = new THREE.Box3().setFromObject(player1.mesh);
+
+        if (mybox.intersectsBox(playerbox)) {
+            if (this.newSpeed != 0) {
+                player1.speed += this.newSpeed;
+            }
+            if (this.newJumpPower != 0) {
+                player1.jumpPower += this.newJumpPower;
+            }
+            if (this.healthAddition != 0) {
+                player1.health += this.healthAddition;
+            }
+        }
+    }
+
+    static handleRemoval() {
+        const powerupsLeft = [];
+
+        for (let p of powerups) {
+            const mybox = new THREE.Box3().setFromObject(p.mesh);
+            const playerbox = new THREE.Box3().setFromObject(player1.mesh);
+
+            if (mybox.intersectsBox(playerbox)) {
+                p.mesh.geometry.dispose();
+                p.mesh.material.dispose();
+                scene.remove(p.mesh);
+                continue;
+            }
+
+            powerupsLeft.push(p);
+        }
+
+        powerups = powerupsLeft;
+    }
+}
+
+for (let i = 0; i < 3; i++) {
     zombies.push(new Zombie(i * 2, 1 * 4))
 }
 
@@ -397,14 +529,22 @@ document.addEventListener("keydown", (event) => {
                 player1.isJumping = true;
                 player1.dz = player1.jumpPower;
             }
+            break;
+        case "Shift":
+            bullets.push(new Bullet(player1));
+            break;
         case "Enter":
             if (stages.menu || stages.death) {
+                if (stages.menu) {
+                    displayStageVar = 1;
+                }
                 stages.menu = false;
                 stages.stage1 = true;
                 stages.death = false;
 
                 reset();
             }
+            break;
     }
 });
 
@@ -437,35 +577,127 @@ function update() {
         for (let z of zombies) {
             z.update();
         }
+
+        // zombie death check
+        let zombiesWhoAreGonnaDieInLine453 = zombies.filter(zombie => zombie.health <= 0);
+        for (let z of zombiesWhoAreGonnaDieInLine453) {
+            z.mesh.geometry.dispose();
+            z.mesh.material.dispose();
+            scene.remove(z.mesh);
+        }
+        zombies = zombies.filter(zombie => zombie.health > 0);
+
+
+        for (let b of bullets) {
+            b.update();
+        }
+
+        Bullet.handleRemoval();
+
+        // powerup update
+        for (let p of powerups) {
+            p.update();
+        }
+
+        Powerup.handleRemoval();
+
+        // check for next stage
+        if (zombies.length === 0) {
+            stages.stage1 = true;
+            displayStageVar += 1;
+            // add more zombies for the next stage
+
+            if (justDied) {
+                displayStageVar = 1;
+                justDied = false;
+            }
+            for (let i = 0; i < 3 * displayStageVar; i++) {
+                zombies.push(new Zombie(i * 2, 1 * 4));
+            }
+
+            // add more powerups
+            let amtOfPowerUps = Math.floor(Math.random() * 3) + 1;
+            for (let i = 0; i < amtOfPowerUps; i++) {
+                const random = Math.random();
+                if (random < 0.33) {
+                    powerups.push(new Powerup(Math.random() * 0.1, 0, 0));
+                } else if (random < 0.66) {
+                    powerups.push(new Powerup(0, Math.random() * 0.5, 0));
+                } else {
+                    powerups.push(new Powerup(0, 0, Math.random() * 20));
+                }
+            }
+
+            // reset player powers
+            player1.speed = 0.1;
+            player1.jumpPower = 0.5;
+        }
+
+        for (let w of walls) {
+            w.update();
+        }
     }
 
     // menu
+
     if (stages.menu) {
-
-        title.textContent = "Zombie Apocolypse";
+        title.textContent = "Zombie Apocalypse";
         subtitle.textContent = "Enter to Start";
-
-        ui.hidden = false;
-    } else if (!stages.death && !stages.menu) {
-        title.textContent = "";
-        subtitle.textContent = "";
-
-        ui.style.background = "none";
+        ui.style.display = "flex";
+    } else if (stages.stage1) {
+        ui.style.display = "none";
+    } else if (stages.death) {
+        ui.style.display = "flex";
+        title.textContent = "You Died";
+        subtitle.textContent = "Enter to Restart";
     }
 }
 
 // getElementById's
 const healthDisplay = document.getElementById("health");
+const scoreDisplay = document.getElementById("score");
+const stageDisplay = document.getElementById("stage");
+const wallHealthDisplay = document.getElementById("wallhealth");
 
 function updateUI() {
     healthDisplay.textContent = `Health: ${Math.round(player1.health)}`;
+    scoreDisplay.textContent = `Score: ${score}`;
+    stageDisplay.textContent = `Stage ${displayStageVar}`;
+    wallHealthDisplay.textContent = `Wall Health: ${Math.round(walls[0].health)}`;
 }
 
 function reset() {
     player1.health = 100;
+
     for (let z of zombies) {
-        z.respawn();
+        z.mesh.geometry.dispose();
+        z.mesh.material.dispose();
+        scene.remove(z.mesh);
+    }
+    zombies = [new Zombie(0, 0)];
+    for (let i = 0; i < 3; i++) {
+        zombies.push(new Zombie(i * 2, 4));
     }
 
+    for (let b of bullets) {
+        b.mesh.geometry.dispose();
+        b.mesh.material.dispose();
+        scene.remove(b.mesh);
+    }
+    bullets = [];
+
+    for (let p of powerups) {
+        p.mesh.geometry.dispose();
+        p.mesh.material.dispose();
+        scene.remove(p.mesh);
+    }
+    powerups = [];
+
     player1.respawn();
+    player1.speed = 0.1;
+    player1.jumpPower = 0.5;
+    player1.health = 100;
+    displayStageVar = 1;
+    score = 0;
+    justDied = true;
 }
