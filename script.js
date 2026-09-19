@@ -3,6 +3,9 @@ import zombieMatURL from "./assets/zombie-material.png";
 import skyMaterialURL from "./assets/sky.png";
 import grassMaterialURL from "./assets/grass.png";
 import stoneMaterialURL from "./assets/stone.png";
+import leavesMaterialURL from "./assets/leaves.png";
+import barkMaterialURL from "./assets/bark.png";
+import { traverseVisibleGenerator } from 'three/examples/jsm/utils/SceneUtils.js';
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87CEEB);
@@ -40,8 +43,14 @@ const stoneMaterial = new THREE.MeshStandardMaterial({ map: stoneTexture, roughn
 stoneTexture.wrapS = THREE.RepeatWrapping;
 stoneTexture.wrapT = THREE.RepeatWrapping;
 
+const leavesTexture = tLoader.load(leavesMaterialURL);
+const leavesMaterial = new THREE.MeshStandardMaterial({ map: leavesTexture, roughness: 0.5 });
+
+const barkTexture = tLoader.load(barkMaterialURL);
+const barkMaterial = new THREE.MeshStandardMaterial({ map: barkTexture, roughness: 0.5 });
+
 stoneTexture.repeat.set(10, 1);
- 
+
 grassTexture.wrapS = THREE.RepeatWrapping;
 grassTexture.wrapT = THREE.RepeatWrapping;
 
@@ -71,14 +80,57 @@ camera.position.y = -15;
 camera.lookAt(0, 0, 0);
 
 let zombies = [];
-const walls = [];
+let walls = [];
+
+let trees = [];
+
+class Tree {
+    constructor(x, y) {
+        this.geo = new THREE.CylinderGeometry(0.5, 0.5, 3, 32);
+        this.mesh = new THREE.Mesh(this.geo, barkMaterial);
+
+        scene.add(this.mesh);
+        this.mesh.position.set(x, y, 1.5);
+        this.mesh.rotation.x = Math.PI / 2;
+
+        this.leavesGeo = new THREE.SphereGeometry(1.5, 32, 32);
+        this.leavesMesh = new THREE.Mesh(this.leavesGeo, leavesMaterial);
+
+        scene.add(this.leavesMesh);
+        this.leavesMesh.position.set(x, y, 4);
+    }
+}
+
+for (let i = 0; i < 10; i++) {
+    const randomX = Math.random() * 50;
+    const randomY = Math.random() * 50;
+
+    const randomIdk = Math.random();
+
+    let sign = 1;
+    if (randomIdk >= 0.5) {
+        sign = 1;
+    } else {
+        sign = -1;
+    }
+
+    let signy = 1;
+    const randomIdk2 = Math.random();
+    if (randomIdk2 >= 0.5) {
+        sign = 1;
+    } else {
+        
+    }
+
+    trees.push(new Tree(randomX, randomY));
+}
 
 class Wall {
-    constructor (x, y, z, w, h, d) {
+    constructor(x, y, z, w, h, d) {
         this.geo = new THREE.BoxGeometry(w, h, d);
         this.material = stoneMaterial;
         this.mesh = new THREE.Mesh(this.geo, this.material);
-        
+
         scene.add(this.mesh);
         this.mesh.position.set(x, y, z);
 
@@ -255,6 +307,14 @@ class Zombie {
         this.geo = new THREE.BoxGeometry(this.w, this.h, this.d);
         const zombieMaterial = new THREE.MeshStandardMaterial({ map: zombieTexture, roughness: 0.5 })
         this.mesh = new THREE.Mesh(this.geo, zombieMaterial);
+
+        this.arm1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 1), zombieMaterial);
+        this.arm1.position.x = 0.7;
+        this.mesh.add(this.arm1);
+
+        this.arm2 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 1), zombieMaterial);
+        this.arm2.position.x = -0.7;
+        this.mesh.add(this.arm2);
 
         scene.add(this.mesh);
 
@@ -587,6 +647,8 @@ function update() {
         }
         zombies = zombies.filter(zombie => zombie.health > 0);
 
+        // wall removal check
+        walls = walls.filter(wall => wall.health > 0);
 
         for (let b of bullets) {
             b.update();
@@ -663,7 +725,9 @@ function updateUI() {
     healthDisplay.textContent = `Health: ${Math.round(player1.health)}`;
     scoreDisplay.textContent = `Score: ${score}`;
     stageDisplay.textContent = `Stage ${displayStageVar}`;
-    wallHealthDisplay.textContent = `Wall Health: ${Math.round(walls[0].health)}`;
+    if (walls[0] != undefined) {
+        wallHealthDisplay.textContent = `Wall Health: ${Math.round(walls[0].health)}`;
+    }
 }
 
 function reset() {
